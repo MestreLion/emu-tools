@@ -1,0 +1,55 @@
+# This file must be used with "source bin/activate" *from bash*
+# you cannot run it directly
+# See https://github.com/MestreLion/emu-tools
+#
+# Most of this code (and the idea) are blatantly copied from python's venv
+
+case "${BASH_SOURCE-}" in
+	"$0") echo "You must source this script, not execute it: \$ source $0" >&2; exit 33;;
+	"")   echo "This script only works in the 'bash' shell" >&2;   return 34 || exit 34;;
+esac
+
+deactivate_emutools() {
+	# reset old environment variables
+	# ! [ -z ${VAR+_} ] returns true if VAR is declared at all
+	if ! [ -z "${_EMUTOOLS_OLD_PATH:+_}" ] ; then
+		export PATH=$_EMUTOOLS_OLD_PATH
+		unset _EMUTOOLS_OLD_PATH
+	fi
+	# The hash command must be called to get it to forget past
+	# commands. Without forgetting past commands the $PATH changes
+	# we made may not be respected
+	hash -r 2>/dev/null
+
+	unset EMUTOOLS_DIR
+
+	if [ ! "${1-}" = "nondestructive" ] ; then
+		# Self destruct!
+		unset -f deactivate_emutools
+		_emutools_msg "emu-tools deactivated" >&2
+	fi
+
+	unset -v _emutools_quiet
+	unset -f _emutools_msg
+}
+
+if ! [ -z "${EMUTOOLS_DIR:+_}" ] ; then
+	_emutools_msg "emu-tools is already active, re-activating"
+fi
+
+# unset any previous activation
+deactivate_emutools nondestructive
+
+_emutools_quiet=${1:-}
+_emutools_msg() {
+	if ! [ -n "${_emutools_quiet:-}" ] ; then echo "$@" >&2; fi
+}
+
+export EMUTOOLS_DIR=$(dirname "$(readlink -f "$BASH_SOURCE")")
+
+_EMUTOOLS_OLD_PATH=$PATH
+export PATH=$EMUTOOLS_DIR:$PATH
+# Make sure $PATH change is applied, see deactivate_emutools()
+hash -r 2>/dev/null
+
+_emutools_msg "emu-tools activated, run deactivate_emutools to deactivate"
