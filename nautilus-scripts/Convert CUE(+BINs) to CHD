@@ -1,0 +1,5 @@
+#!/bin/bash
+# icon-name: media-optical
+
+cue2chd -- "$@" 2>&1 |
+zenity --text-info --title "${0##*/}" --text "Output folder: ${PWD}" --width 600 --height 600

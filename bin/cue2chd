@@ -1,0 +1,117 @@
+#!/bin/bash
+#
+# progname - short description
+#
+# This file is part of Scripts, see <https://github.com/MestreLion/scripts
+# Copyright (C) 2023 Rodrigo Silva (MestreLion) <linux@rodrigosilva.com>
+# License: GPLv3 or later, at your choice. See <http://www.gnu.org/licenses/gpl>
+#------------------------------------------------------------------------------
+
+set -Eeuo pipefail  # exit on any error
+trap '>&2 echo "error: line $LINENO, status $?: $BASH_COMMAND"' ERR
+
+#------------------------------------------------------------------------------
+# icon-name: media-optical
+
+self=${0##*/}
+here=$(dirname "$(readlink -f "$0")")
+
+destdir=.
+verbose=1
+
+#------------------------------------------------------------------------------
+
+fatal()   { if (($#)); then echo "$self: error: $*" >&2; fi; exit 1; }
+message() { if (($# && verbose)); then printf '%s\n' "$@"; fi; }
+argerr()  { printf "%s: %s\n" "$self" "${1:-error}" >&2; usage 1; }
+invalid() { argerr "invalid ${2:-option}: ${1:-}"; }
+missing() { argerr "missing ${1:+$1 }argument${2:+ from $2}."; }
+exists()  { type "$@" >/dev/null 2>&1; }
+require() {
+	local cmd=$1
+	local pkg=${2:-$cmd}
+	local msg='' eol=''
+	if exists "$cmd"; then return; fi
+	if [[ -x /usr/lib/command-not-found ]]; then
+		/usr/lib/command-not-found -- "$cmd" || true
+		eol='\n'
+	else
+		echo "Required command '${cmd}' is not installed." >&2
+		if [[ "$pkg" != '-' ]]; then
+			msg="with:\n\tsudo apt install ${pkg}\n"
+		fi
+	fi
+	echo -e "Please install ${cmd} ${msg}and try again.${eol}" >&2
+	exit 1
+}
+usage() {
+	if [[ "${1:-}" ]] ; then exec >&2; fi
+	cat <<-USAGE
+	Usage: $self [chdman options] [-d DEST_DIR] [--] CUE_FILEs...
+	USAGE
+	if [[ "${1:-}" ]] ; then
+		cat <<- USAGE
+		Try '$self --help' for more information.
+		USAGE
+		exit 1
+	fi
+	cat <<-USAGE
+
+	Creates CHD files from CUE (+BINs) files using MAME's chdman createcd.
+
+	Despite the name, also works with GDI input files and their BIN/RAW.
+	Output CHD basename will always match the input CUE (or GDI) basename.
+
+	Options:
+	  -h|--help   - show this page.
+	  -q|--quiet  - supress informative messages.
+
+	  -d|--dest-dir DIR - Output files to DIR, creating it if necessary.
+	                      By default outputs to current directory.
+
+	All other options are passed to 'chdman createcd'
+
+	Copyright (C) 2023 Rodrigo Silva (MestreLion) <linux@rodrigosilva.com>
+	License: GPLv3 or later. See <http://www.gnu.org/licenses/gpl.html>
+	USAGE
+	exit 0
+}
+
+# Pre-parse for -h|--help, ignoring if after '--'
+for arg in "$@"; do
+	if [[ "$arg" == '--' ]]; then break; fi
+	if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then usage; fi
+done
+args=()
+files=()
+while (($#)); do
+	# shellcheck disable=SC2221,SC2222
+	case "$1" in
+	-q|--quiet) verbose=0;;
+	-d|--dest-dir) shift; destdir=${1:-};;
+	--dest-dir=*) destdir=${1#*=};;
+	--) shift; break;;
+	-*) args+=( "$1" );;
+	*) files+=( "$1" );;
+	esac
+	shift || break
+done
+files+=( "$@" )
+
+(( ${#files[@]} )) || missing INPUT_FILE;
+
+#------------------------------------------------------------------------------
+
+require chdman mame-util
+
+mkdir -p -- "$destdir"
+
+error=0
+for file in "${files[@]}"; do
+	name=$(basename "${file%.*}")
+	chdman createcd "${args[@]}" -i "$file" -o "${destdir%/}"/"$name".chd ||
+		error=1
+done
+
+if ((error)); then fatal "see chdman's output above"; fi
+message "Done!"
