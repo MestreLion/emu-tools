@@ -102,7 +102,23 @@ files+=( "$@" )
 
 #------------------------------------------------------------------------------
 
-require chdman mame-util
+# archive2chd
+#for zip in *.zip; do
+#	game=$(basename "$zip" .zip); echo "$game"
+#	unzip-strip "$zip"
+#	cd "$game"/; cue2chd *.cue
+#	mv *.chd ..
+#	cd ..
+#	trash "$game"/
+#done
+
+# chd2cue
+#for %%i in (*.chd) do (
+#chdman extractcd -i "%%i" -o "%%~ni.cue" -ob "%%~ni.iso"
+#del "%%~ni.cue"
+#)
+
+require chdman mame-tools
 
 mkdir -p -- "$destdir"
 
