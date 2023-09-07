@@ -1,0 +1,101 @@
+#!/bin/bash -u
+# TODO: https://wiki.batocera.org/scripting_function_keys
+# FIXME: This tool is obsolete! Use RetroArch's built-in recording with GPU enabled
+#        (but see https://github.com/libretro/RetroArch/issues/14013)
+# ------------------------------------------------------------------------------
+# Sanity check
+
+if ! [[ -f "/userdata/system/batocera.conf" ]] || ((EUID > 0)); then
+	echo "Must run as root in a Batocera system" >&2
+	exit 1
+fi
+
+# ------------------------------------------------------------------------------
+# Constants
+
+export DISPLAY=:0.0  # for batocera-resolution, osd_cat and ffmpeg
+
+OUTPUT="/userdata/screenshots/capture-$(date +%Y.%m.%d-%H.%M.%S).mkv"
+SELF=${0##*/}
+LOG_FILE=${HOME}/logs/${SELF}.log
+PID_FILE=${XDG_RUNTIME_DIR}/${SELF}.pid
+RESOLUTION=$(type batocera-resolution &>/dev/null && batocera-resolution currentResolution)
+VERBOSE=1
+
+# ffmpeg options
+VIDEO_OPTS=(
+	-f x11grab -video_size "$RESOLUTION" -framerate 30
+	-probesize 20M -thread_queue_size 1024
+	-i "$DISPLAY"+0,0
+)
+AUDIO_OPTS=(-f alsa -i default)
+OUTPUT_OPTS=()  # default output settings
+# TODO: Re-evaluate and re-introduce former CLI "presets" from batocera-record:
+# * What is --compress supposed to be? Better quality? Faster for poor CPUs?
+#   It isn't smaller file: they're larger than default, so compress is misleading
+#   '-crf 20' indicates "better than default" quality (23), 'veryfast' achieves
+#   the opposite, so not sure the original intention, and 'compress' is meaningless.
+# - --fast '-crf 0' heavily indicates lossless was primary goal, 'ultrafast' just to
+#   help slow CPUs to handle run-time lossless compression with minimum impact
+#   (at the expense of even larger file sizes). So '--fast' is very misleading.
+OUTPUT_OPTS_LOSSLESS=(-c:v libx264rgb -crf  0 -preset ultrafast -c:a flac)  # --fast
+OUTPUT_OPTS_COMPRESS=(-c:v libx264rgb -crf 20 -preset veryfast)  # --compress
+
+# ------------------------------------------------------------------------------
+# Helper functions
+
+error()  { echo "${SELF}: error: $@" >&2; }
+fatal()  { if (($#)); then error "$@"; fi; exit 1; }
+notify() {
+	if ((VERBOSE)); then echo "$@"; fi
+	echo "$@" |
+	LANG=C osd_cat -f -*-*-bold-*-*-*-20-120-*-*-*-*-*-* -c yellow -s 2 -S red -d 2 &
+}
+usage() {
+	echo "${SELF} [--default]"   >&2
+	echo "${SELF} --lossless"    >&2
+#	echo "${SELF} --compress"    >&2
+}
+
+# Log stdout and stderr to LOG_FILE while keeping their distinct regular terminal output
+exec > >(tee -a "$LOG_FILE") 2> >(tee -a "$LOG_FILE" >&2)
+
+# ------------------------------------------------------------------------------
+# Command-line handling
+# TODO: '-q|--quiet' to set VERBOSE to 0
+# TODO: last (non-option) argument to set OUTPUT file
+# TODO: add --video, --audio, --output (and possibly -- to replace all)
+
+ACTION=${1:-}
+
+case "${ACTION}" in
+	-h|--help) usage; exit;;
+	--default|"")      OUTPUT_OPTS=( );;
+	--lossless|--fast) OUTPUT_OPTS=( "${OUTPUT_OPTS_LOSSLESS[@]}" );;
+#	--compress)        OUTPUT_OPTS=( "${OUTPUT_OPTS_COMPRESS[@]}" );;
+	*) error "unknown option: '${ACTION}'"; usage; exit 1;;
+esac
+
+# ------------------------------------------------------------------------------
+# Main program
+
+if [[ -f "$PID_FILE" ]]; then
+	pid=$(<"$PID_FILE")
+	kill -s INT "$pid" || error "failed to stop ffmpeg recording: PID ${pid}"
+	rm -f "$PID_FILE"  || error "failed to remove PID file: ${PID_FILE}"
+	notify "Recording stopped"
+	exit
+fi
+
+mkdir -p "${OUTPUT%/*}" || fatal "failed to create directories for: ${OUTPUT}"
+notify "Recording to ${OUTPUT}"
+ffmpeg "${VIDEO_OPTS[@]}" "${AUDIO_OPTS[@]}" "${OUTPUT_OPTS[@]}" "$OUTPUT" 2>> "$LOG_FILE" &
+pid=$!
+
+echo "$pid" > "$PID_FILE" || fatal "failed to write PID ${pid} file: ${PID_FILE}"
+
+if ((VERBOSE)); then
+	echo "Log file: ${LOG_FILE}"
+	echo "PID ${pid}: ${PID_FILE}"
+	echo "Run ${SELF} again to stop"
+fi

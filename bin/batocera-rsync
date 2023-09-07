@@ -1,0 +1,26 @@
+#!/bin/bash
+#
+# batocera-rsync - Copy a local tree to a Batocera system using rsync
+#
+# This file is part of Emu Tools, see <https://github.com/MestreLion/emu-tools>
+# Copyright (C) 2023 Rodrigo Silva (MestreLion) <linux@rodrigosilva.com>
+# License: GPLv3 or later, at your choice. See <http://www.gnu.org/licenses/gpl>
+#------------------------------------------------------------------------------
+set -Eeuo pipefail  # exit on any error
+trap '>&2 echo "error: line $LINENO, status $?: $BASH_COMMAND"' ERR
+#------------------------------------------------------------------------------
+
+SELF=${0##*/}
+#HERE=$(dirname "$(readlink -f "$0")")
+
+source=${1:-${EMUTOOLS_BATOCERA_RSYNC_SOURCE:-}}
+target=${2:-${EMUTOOLS_BATOCERA_RSYNC_TARGET:-'batocera:/'}}
+
+usage() { echo "Usage: ${SELF} [SOURCE] [TARGET]"; exit "${1:-0}"; }
+for arg in "$@"; do [[ "$arg" == "-h" || "$arg" == "--help" ]] && usage; done
+if ! [[ -d "$source" ]] || [[ -z "$target" ]]; then usage 1; fi
+
+# -rtlE: --recursive --times (preserve timestamps) --links (copy symlinks as symlinks) --executability
+# (that's basically '-a' without preserving owner, group or permissions and special files (ogpD)
+# --copy-unsafe-links: symlinks pointing outside source dir are treated as regular dir/files
+rsync -rlt --copy-unsafe-links --update --progress "${source%/}"/ "${target%/}"/
