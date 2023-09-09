@@ -1,0 +1,130 @@
+#!/bin/bash
+#
+# archive-run - Run a command over file(s) in a temporarily extracted archive
+#
+# This file is part of Emu-Tools, see <https://github.com/MestreLion/emu-tools
+# Copyright (C) 2023 Rodrigo Silva (MestreLion) <linux@rodrigosilva.com>
+# License: GPLv3 or later, at your choice. See <http://www.gnu.org/licenses/gpl>
+#------------------------------------------------------------------------------
+
+set -Eeuo pipefail  # exit on any error
+trap '>&2 echo "error: line $LINENO, status $?: $BASH_COMMAND"' ERR
+
+#------------------------------------------------------------------------------
+# icon-name: media-optical
+
+self=${0##*/}
+here=$(dirname "$(readlink -f "$0")")
+
+verbose=0
+
+#------------------------------------------------------------------------------
+
+error()   { if (($#)); then echo "$self: error: $*" >&2; fi; }
+fatal()   { error "$@"; exit 1; }
+message() { if (($# && verbose)); then printf '%s\n' "$@"; fi; }
+argerr()  { printf "%s: %s\n" "$self" "${1:-error}" >&2; usage 1; }
+invalid() { argerr "invalid ${2:-option}: ${1:-}"; }
+missing() { argerr "missing ${1:+$1 }argument${2:+ from $2}."; }
+exists()  { type "$@" >/dev/null 2>&1; }
+require() {
+	local cmd=$1
+	local pkg=${2:-$cmd}
+	local msg='' eol=''
+	if exists "$cmd"; then return; fi
+	if [[ -x /usr/lib/command-not-found ]]; then
+		/usr/lib/command-not-found -- "$cmd" || true
+		eol='\n'
+	else
+		echo "Required command '${cmd}' is not installed." >&2
+		if [[ "$pkg" != '-' ]]; then
+			msg="with:\n\tsudo apt install ${pkg}\n"
+		fi
+	fi
+	echo -e "Please install ${cmd} ${msg}and try again.${eol}" >&2
+	exit 1
+}
+usage() {
+	if [[ "${1:-}" ]] ; then exec >&2; fi
+	cat <<-USAGE
+	Usage: $self ARCHIVE PATTERN [--] COMMAND [COMMAND_ARGS...] ('%f'|'%D')...
+	USAGE
+	if [[ "${1:-}" ]] ; then
+		cat <<- USAGE
+		Try '$self --help' for more information.
+		USAGE
+		exit 1
+	fi
+	cat <<-USAGE
+
+	Run a command over file(s) in a temporarily extracted archive.
+
+	Positional arguments:
+	  ARCHIVE - The archive file to extract.
+	  PATTERN - Filename pattern to match the input file(s) inside the archive.
+	            (case insensitive, same syntax as in 'find ... -iname PATTERN')
+	  COMMAND, COMMAND_ARGS, '%f', '%D' - The command to run and its arguments.
+	            among them should be one (or more) placeholders for the input
+	            file ('%f') or the temporary extraction directory ('%D')
+
+	Options:
+	  -h|--help   - show this page.
+
+	Operation:
+	- Extract the archive to a temporary, newly-created dir in, by default, '/tmp'.
+	  As this is usally on system partition or even a RAM mount, read/write operations
+	  are much faster then using a subdir of the input or the output files.
+	- Find files in archive matching PATTERN, and run COMMAND for each file found.
+	- Delete the temporary extraction directory on exit.
+
+	Copyright (C) 2023 Rodrigo Silva (MestreLion) <linux@rodrigosilva.com>
+	License: GPLv3 or later. See <http://www.gnu.org/licenses/gpl.html>
+	USAGE
+	exit 0
+}
+
+# Pre-parse for -h|--help, ignoring if after '--'
+for arg in "$@"; do
+	if [[ "$arg" == '--' ]]; then break; fi
+	if [[ "$arg" == "-h" || "$arg" == "--help" ]]; then usage; fi
+done
+
+# Command-line handling
+archive=${1:-}; [[ "$archive" ]] || missing ARCHIVE
+pattern=${2:-}; [[ "$pattern" ]] || missing PATTERN
+if [[ "${3:-}" == '--' ]]; then shift 3; else shift 2; fi
+command=( "$@" ); [[ "${command[0]:-}" ]] || missing COMMAND;
+
+# Find the placeholders
+fpos=()
+dpos=()
+for i in "${!command[@]}"; do
+	case "${command[i]}" in
+		%f) fpos+=( $i );;
+		%D) dpos+=( $i );;
+	esac
+done
+(( "${#fpos[@]}" + "${#dpos[@]}" )) || missing "%f or %D placeholders"
+
+#------------------------------------------------------------------------------
+
+tmpdir=$(mktemp --directory) || fatal "could not create temp dir"
+trap 'rm -rf -- "$tmpdir"' EXIT
+
+if [[ "${DISPLAY:-}" ]] && exists file-roller; then
+	file-roller --extract-to "$tmpdir" -- "$archive"
+else
+	require 7z p7zip-full
+	7z x -o"$tmpdir" -- "$archive"
+fi
+
+status=0
+while IFS= read -r file; do
+	for i in "${fpos[@]}"; do command[$i]=$file; done
+	for i in "${dpos[@]}"; do command[$i]=$tmpdir; done
+	message "executing: ${command[*]}"
+	if ! "${command[@]}"; then status=1; error "executing: ${command[*]}"; fi
+done < <(find "$tmpdir" -mindepth 1 -iname "$pattern")
+
+if (( status )); then exit 1; fi
+message "Done!"
