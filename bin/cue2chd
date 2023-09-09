@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# progname - short description
+# cue2bin - Creates CHD files from CUE (+BINs) files using MAME's chdman createcd.
 #
-# This file is part of Scripts, see <https://github.com/MestreLion/scripts
+# This file is part of Emu-Tools, see <https://github.com/MestreLion/emu-tools
 # Copyright (C) 2023 Rodrigo Silva (MestreLion) <linux@rodrigosilva.com>
 # License: GPLv3 or later, at your choice. See <http://www.gnu.org/licenses/gpl>
 #------------------------------------------------------------------------------
@@ -102,21 +102,12 @@ files+=( "$@" )
 
 #------------------------------------------------------------------------------
 
-# archive2chd
-#for zip in *.zip; do
-#	game=$(basename "$zip" .zip); echo "$game"
-#	unzip-strip "$zip"
-#	cd "$game"/; cue2chd *.cue
-#	mv *.chd ..
-#	cd ..
-#	trash "$game"/
-#done
-
-# chd2cue
-#for %%i in (*.chd) do (
-#chdman extractcd -i "%%i" -o "%%~ni.cue" -ob "%%~ni.iso"
-#del "%%~ni.cue"
-#)
+# chd2cue: (merged BIN)
+#	for chd in *.chd; do
+#		name=$(basename "$chd" .chd)
+#		chdman extractcd -i "$chd" -o "${name}.cue" -ob "${name}.bin"
+#		rm "${name}.cue"
+#	done
 
 require chdman mame-tools
 
