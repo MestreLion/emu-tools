@@ -1,0 +1,17 @@
+#!/bin/bash
+# icon-name: media-optical
+
+zenity --text-info --title "${0##*/}" --width 600 --height 600 < <(
+exec 2>&1
+if ! (($#)); then echo "No input files selected"; exit; fi
+for file in "$@"; do
+	ext=${file##*.}
+	case "${ext,,}" in
+		# not extensive by any means, but should cover almost all real-world usage
+		7z|bz2|gz|rar|tar|xz|zip|z|zst) archive-run "$file" '*.iso' -- extract-xiso -d . -r -- %f;;
+		iso) extract-xiso -d . -r -- "$file" || continue;;
+		*) echo "ignoring file: $file";;
+	esac
+done
+echo "All Done!"
+)
